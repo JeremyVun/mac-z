@@ -15,12 +15,8 @@ struct ContentView: View {
     var body: some View {
         VStack(spacing: 0) {
             header
-            Picker("Category", selection: $page) {
-                ForEach(Page.allCases) { Text($0.rawValue).tag($0) }
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .padding(.horizontal, 24)
+            PagePicker(page: $page)
+                .padding(.horizontal, 24)
             .padding(.bottom, 18)
 
             Divider()
@@ -177,6 +173,19 @@ struct ContentView: View {
 
     private func note(_ text: String) -> some View {
         Text(text).font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+    }
+}
+
+// Rebuilding a segmented Picker leaks SwiftUI tag state, so keep it out of the per-sample refresh.
+private struct PagePicker: View {
+    @Binding var page: Page
+
+    var body: some View {
+        Picker("Category", selection: $page) {
+            ForEach(Page.allCases) { Text($0.rawValue).tag($0) }
+        }
+        .pickerStyle(.segmented)
+        .labelsHidden()
     }
 }
 
