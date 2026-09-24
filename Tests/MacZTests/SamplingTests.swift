@@ -1,3 +1,4 @@
+import Combine
 import AppKit
 import XCTest
 @testable import MacZ
@@ -98,6 +99,27 @@ final class SamplingTests: XCTestCase {
         XCTAssertEqual(model.memoryHistory.count, 1)
         XCTAssertEqual(model.dockHistory.samples.count, 1)
         XCTAssertNil(model.dockHistory.samples[0].cpu)
+    }
+
+    @MainActor
+    func testHiddenWindowSkipsRefreshesButKeepsSampling() {
+        _ = NSApplication.shared
+        let model = AppModel()
+        var refreshes = 0
+        let subscription = model.objectWillChange.sink { refreshes += 1 }
+        defer { subscription.cancel() }
+        let start = ContinuousClock.now
+        model.windowVisible = false
+        model.sample(at: start)
+        model.sample(at: start.advanced(by: .seconds(2)))
+        XCTAssertEqual(refreshes, 0)
+        XCTAssertEqual(model.cpuHistory.count, 2)
+        XCTAssertEqual(model.dockHistory.samples.count, 2)
+
+        model.windowVisible = true
+        XCTAssertEqual(refreshes, 1)
+        model.sample(at: start.advanced(by: .seconds(4)))
+        XCTAssertGreaterThan(refreshes, 1)
     }
 
     @MainActor

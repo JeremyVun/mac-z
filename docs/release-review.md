@@ -23,6 +23,18 @@ Three additional issues were reproduced with failing regression tests and fixed:
 | Copying a paused report described retained readings as current activity. | Use the section title `Paused activity` when sampling is paused. | The report test failed on the old title and passes after the change. No new data fields were added to reports. |
 | Two build scripts could overlap after SwiftPM released its compilation lock, racing the app replacement and rollback steps. | Hold a nonblocking kernel file lock across the complete build and packaging operation. The lock file remains in `.build`; the kernel releases ownership on process exit. | Packaging tests reject a competing lock without touching the previous app, verify lock ownership during signing/verification, and verify release after a failed build. |
 
+## Long-running pass — 24 September 2026
+
+A copy left running for four days used 35–40% CPU and 491 MB. Found by profiling and heap diffs of the live process:
+
+| Issue | Change | Evidence |
+| --- | --- | --- |
+| Every sample rebuilt the segmented page picker, and SwiftUI leaked its tag state each time (one `TagIndexProjection` plus two Observation registrars per sample). Layout slowed as the pile grew. | Move the picker into its own view that only depends on the selected page. | 165,262 leaked projections after four days; the fixed build stays at one. The old build gained 22 in 40 seconds while the fixed build gained none. |
+| The window re-rendered every sample while minimized, hidden or covered. Each SwiftUI frame also schedules a RenderBox clean-up timer that stays pending in libdispatch. | Readings refresh the window only while it is visible; sampling and the Dock graph continue. | A hidden window drops from 12 idle wakeups per 5 seconds to none, and pending timers fall instead of growing. `testHiddenWindowSkipsRefreshesButKeepsSampling`. |
+| The Dock view set its accessibility label inside `draw(_:)`. | Set it when new readings arrive. | Code change only. |
+
+Remaining framework behaviour: a visible window still schedules RenderBox clean-up timers, and `leaks` reports a one-time 14 KB cycle in AppKit's XPC interfaces. Neither is reachable from MacZ code.
+
 ## Verification
 
 - `swift test`: 14 tests passed, including live API checks, report privacy, and second-pass regressions.
@@ -39,7 +51,7 @@ Three additional issues were reproduced with failing regression tests and fixed:
 1. Use a clean, reviewed commit on `main` for release. No deployment was attempted during this review.
 2. Configure Developer ID signing, enable and test hardened runtime, notarize the distribution artifact, staple the ticket, and verify a quarantined download on a clean Mac. The current script signs ad hoc for local use only. See [Apple's distribution requirements](https://developer.apple.com/documentation/security/notarizing-macos-software-before-distribution).
 3. Test on macOS 14 and native Intel hardware, including integrated/discrete and unsupported GPU counters. A universal build and Rosetta execution do not verify Intel hardware APIs.
-4. Run an extended minimized-monitoring and actual sleep/wake test. Automated tests cover background sampling without a window and simulated lifecycle transitions; they do not reproduce overnight sleep, App Nap heuristics, or long-term energy usage.
+4. Run an extended minimized-monitoring and actual sleep/wake test, and check that footprint and CPU stay flat over at least an hour. Automated tests cover background sampling without a window and simulated lifecycle transitions; they do not reproduce overnight sleep, App Nap heuristics, or long-term energy usage.
 
 The Dock artwork and its documentation changed concurrently during this review; those changes were preserved. This is a review of a working tree, not a frozen release commit.
 

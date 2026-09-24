@@ -3,8 +3,8 @@ import MacZCore
 
 @MainActor
 final class DockHistoryView: NSView {
-    var history = DockHistory()
-    var paused = false
+    private var history = DockHistory()
+    private var paused = false
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -14,6 +14,14 @@ final class DockHistoryView: NSView {
     }
 
     required init?(coder: NSCoder) { nil }
+
+    func show(_ history: DockHistory, paused: Bool) {
+        self.history = history
+        self.paused = paused
+        let cpu = percentage(history.samples.last?.cpu)
+        let gpu = percentage(history.samples.last?.gpu)
+        setAccessibilityLabel("MacZ. CPU \(cpu), GPU \(gpu). \(paused ? "Paused." : "Last minute, 0 to 100 percent.")")
+    }
 
     override func draw(_ dirtyRect: NSRect) {
         guard let context = NSGraphicsContext.current?.cgContext else { return }
@@ -50,10 +58,6 @@ final class DockHistoryView: NSView {
         NSColor.white.withAlphaComponent(0.18).setStroke()
         background.lineWidth = 0.75
         background.stroke()
-
-        let cpu = percentage(history.samples.last?.cpu)
-        let gpu = percentage(history.samples.last?.gpu)
-        setAccessibilityLabel("MacZ. CPU \(cpu), GPU \(gpu). \(paused ? "Paused." : "Last minute, 0 to 100 percent.")")
     }
 
     private func graphPaths(values: [Double?], plot: NSRect) -> (fill: NSBezierPath, outline: NSBezierPath) {

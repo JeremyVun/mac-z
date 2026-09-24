@@ -44,7 +44,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let center = NSWorkspace.shared.notificationCenter
         center.addObserver(self, selector: #selector(willSleep), name: NSWorkspace.willSleepNotification, object: nil)
         center.addObserver(self, selector: #selector(didWake), name: NSWorkspace.didWakeNotification, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(occlusionChanged),
+                                               name: NSWindow.didChangeOcclusionStateNotification, object: nil)
         model.startSampling()
+    }
+    @objc private func occlusionChanged(_ notification: Notification) {
+        model.windowVisible = NSApp.windows.contains { $0.canBecomeMain && $0.occlusionState.contains(.visible) }
     }
     @objc private func willSleep(_ notification: Notification) { model.setSleeping(true) }
     @objc private func didWake(_ notification: Notification) { model.setSleeping(false) }
@@ -69,9 +74,13 @@ enum AppIcon {
 final class AppModel: ObservableObject {
     let hardware = Hardware.read()
     private let sampler = Sampler()
-    @Published var metrics: Metrics?
-    @Published var cpuHistory: [Double?] = []
-    @Published var memoryHistory: [Double?] = []
+    // Sampling continues for the Dock while the window is hidden, but only a visible window re-renders.
+    var metrics: Metrics? { willSet { publishIfVisible() } }
+    var cpuHistory: [Double?] = [] { willSet { publishIfVisible() } }
+    var memoryHistory: [Double?] = [] { willSet { publishIfVisible() } }
+    var windowVisible = true {
+        didSet { if windowVisible && !oldValue { objectWillChange.send() } }
+    }
     @Published var paused = false {
         didSet {
             guard paused != oldValue else { return }
@@ -145,9 +154,12 @@ final class AppModel: ObservableObject {
         updateDock()
     }
 
+    private func publishIfVisible() {
+        if windowVisible { objectWillChange.send() }
+    }
+
     private func updateDock() {
-        dockView.history = dockHistory
-        dockView.paused = paused
+        dockView.show(dockHistory, paused: paused)
         NSApp.dockTile.badgeLabel = paused ? "Paused" : nil
         NSApp.dockTile.display()
     }
