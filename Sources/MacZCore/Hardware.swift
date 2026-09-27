@@ -20,6 +20,8 @@ public enum Format {
         let hours = (minutes % 1440) / 60
         return days > 0 ? "\(days)d \(hours)h \(minutes % 60)m" : "\(hours)h \(minutes % 60)m"
     }
+
+    public static func celsius(_ value: Double) -> String { String(format: "%.0f °C", value) }
 }
 
 public enum Sysctl {
@@ -158,6 +160,10 @@ public struct Hardware: Sendable {
             if let memory = metrics.memory {
                 current += [Spec("Memory used (estimate)", Format.bytes(memory.used)),
                             Spec("Wired", Format.bytes(memory.wired)), Spec("Compressed", Format.bytes(memory.compressed))]
+            }
+            if let temperature = metrics.temperature {
+                current += [Spec("Chip temperature, hottest sensor", Format.celsius(temperature.hottest)),
+                            Spec("Chip temperature, average", Format.celsius(temperature.average))]
             }
             if let swap = metrics.swapUsed { current.append(Spec("Swap used", Format.bytes(swap))) }
             current += [Spec("Uptime", Format.uptime(metrics.uptime)), Spec("Thermal state", metrics.thermal)]

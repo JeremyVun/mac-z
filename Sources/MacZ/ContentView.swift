@@ -81,6 +81,7 @@ struct ContentView: View {
             }
             SpecGroup("Current state", specs: [
                 Spec("Uptime", model.metrics.map { Format.uptime($0.uptime) } ?? "Unavailable"),
+                Spec("Chip temperature", temperatureSummary),
                 Spec("Thermal state", model.metrics?.thermal ?? "Unavailable")
             ])
         }
@@ -89,9 +90,12 @@ struct ContentView: View {
     private var cpu: some View {
         VStack(alignment: .leading, spacing: 18) {
             ActivityCard(title: "CPU usage", value: cpuValue, detail: cpuDetail, history: model.cpuHistory, color: .accentColor)
+            ActivityCard(title: "Chip temperature", value: temperatureValue, detail: temperatureDetail,
+                         history: model.temperatureHistory, color: .orange, scale: .celsius)
+            note("Chip temperature comes from sensors on the Apple silicon chip. They measure the whole chip, including the CPU and GPU, so there's no reading for individual cores. It isn't available on Intel Macs.")
             SpecGroup("Processor", specs: model.hardware.cpu)
             if !model.hardware.caches.isEmpty { SpecGroup("Caches", specs: model.hardware.caches) }
-            note("Cache sizes are reported per core or shared core group by macOS. Live clock speed and CPU temperature aren't available in this version.")
+            note("Cache sizes are reported per core or shared core group by macOS. Live clock speed isn't available in this version.")
         }
     }
 
@@ -167,6 +171,13 @@ struct ContentView: View {
 
     private var cpuValue: String { model.metrics?.cpu.map { String(format: "%.1f%%", $0.total) } ?? "—" }
     private var memoryValue: String { model.metrics?.memory.map { Format.bytes($0.used) } ?? "—" }
+    private var temperatureValue: String { model.metrics?.temperature.map { Format.celsius($0.hottest) } ?? "—" }
+    private var temperatureDetail: String {
+        model.metrics?.temperature.map { "Hottest sensor · average \(Format.celsius($0.average))" } ?? "Unavailable on this Mac"
+    }
+    private var temperatureSummary: String {
+        model.metrics?.temperature.map { "\(Format.celsius($0.hottest)) hottest · \(Format.celsius($0.average)) average" } ?? "Unavailable"
+    }
     private var cpuDetail: String {
         model.metrics?.cpu.map { String(format: "User %.1f%% · System %.1f%%", $0.user, $0.system) } ?? "Waiting for the next sample"
     }
@@ -240,12 +251,26 @@ private struct SpecGroup: View {
     }
 }
 
+private struct GraphScale {
+    let range: ClosedRange<Double>
+    let label: String
+    let spokenRange: String
+
+    static let percent = GraphScale(range: 0...100, label: "0–100%", spokenRange: "0 to 100 percent")
+    static let celsius = GraphScale(range: 20...110, label: "20–110 °C", spokenRange: "20 to 110 degrees Celsius")
+
+    func fraction(of value: Double) -> Double {
+        (min(range.upperBound, max(range.lowerBound, value)) - range.lowerBound) / (range.upperBound - range.lowerBound)
+    }
+}
+
 private struct ActivityCard: View {
     let title: String
     let value: String
     let detail: String
     let history: [Double?]
     let color: Color
+    var scale: GraphScale = .percent
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -283,16 +308,16 @@ private struct ActivityCard: View {
                         continue
                     }
                     points.append(CGPoint(x: size.width * Double(60 - history.count + index) / 59,
-                                          y: size.height * (1 - min(100, max(0, value)) / 100)))
+                                          y: size.height * (1 - scale.fraction(of: value))))
                 }
                 drawSegment(points)
             }
             .frame(height: 45)
-            .accessibilityLabel("\(title) history, 0 to 100 percent. Current value: \(value)")
+            .accessibilityLabel("\(title) history, \(scale.spokenRange). Current value: \(value)")
             HStack {
                 Text("Last 60 samples")
                 Spacer()
-                Text("0–100%")
+                Text(scale.label)
             }.font(.system(size: 9)).foregroundStyle(.tertiary)
         }
         .padding(15)

@@ -34,6 +34,18 @@ final class MacZCoreTests: XCTestCase {
         XCTAssertEqual(GPUUsage.percentage(from: ["Device Utilization %": -1, "GPU Activity(%)": 20]), 20)
     }
 
+    func testChipTemperatureIgnoresInvalidReadingsAndOtherSensors() throws {
+        let summary = try XCTUnwrap(ChipTemperatureSensors.summary([80, 70, -9201.1, .nan, .infinity, 900]))
+        XCTAssertEqual(summary, ChipTemperature(hottest: 80, average: 75))
+        XCTAssertNil(ChipTemperatureSensors.summary([]))
+        XCTAssertNil(ChipTemperatureSensors.summary([-9201.1]))
+        XCTAssertTrue(ChipTemperatureSensors.isDieSensor("PMU tdie12"))
+        for other in ["PMU tdev1", "PMU tcal", "NAND CH0 temp", "gas gauge battery"] {
+            XCTAssertFalse(ChipTemperatureSensors.isDieSensor(other))
+        }
+        XCTAssertEqual(Format.celsius(84.6), "85 °C")
+    }
+
     func testDockHistoryRetainsOneMinuteAndMissingTimeSlots() {
         var history = DockHistory()
         for index in 0..<35 { history.append(cpu: Double(index), gpu: index == 34 ? nil : Double(index)) }
@@ -86,8 +98,12 @@ final class MacZCoreTests: XCTestCase {
         XCTAssertGreaterThan(hardware.physicalCores, 0)
         let sampler = Sampler()
         XCTAssertNil(sampler.sample().cpu)
-        Thread.sleep(forTimeInterval: 0.05)
-        let metrics = sampler.sample()
+        // The kernel's aggregate CPU counters can go several hundred milliseconds without advancing.
+        var metrics = sampler.sample()
+        for _ in 0..<40 where metrics.cpu == nil {
+            Thread.sleep(forTimeInterval: 0.05)
+            metrics = sampler.sample()
+        }
         XCTAssertNotNil(metrics.cpu)
         if let gpu = metrics.gpu { XCTAssertTrue((0...100).contains(gpu)) }
         XCTAssertGreaterThan(try XCTUnwrap(metrics.memory).used, 0)
@@ -100,7 +116,23 @@ final class MacZCoreTests: XCTestCase {
         }
         XCTAssertFalse(report.lowercased().contains("serial"))
         XCTAssertFalse(report.lowercased().contains("uuid"))
-        sampler.resetCPU()
+        sampler.reset()
         XCTAssertNil(sampler.sample().cpu)
+    }
+
+    func testChipTemperatureArrivesOnALaterSample() throws {
+        let sampler = Sampler()
+        XCTAssertNil(sampler.sample().temperature, "The first sample only starts the background read")
+        guard Hardware.read().architecture == "ARM64" else { return }
+        var temperature: ChipTemperature?
+        for _ in 0..<20 where temperature == nil {
+            Thread.sleep(forTimeInterval: 0.1)
+            temperature = sampler.sample().temperature
+        }
+        let reading = try XCTUnwrap(temperature, "Apple silicon die sensors are readable without privileges")
+        XCTAssertTrue((0...150).contains(reading.hottest))
+        XCTAssertLessThanOrEqual(reading.average, reading.hottest)
+        sampler.reset()
+        XCTAssertNil(sampler.sample().temperature)
     }
 }

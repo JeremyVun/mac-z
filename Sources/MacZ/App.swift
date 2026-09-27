@@ -78,6 +78,7 @@ final class AppModel: ObservableObject {
     var metrics: Metrics? { willSet { publishIfVisible() } }
     var cpuHistory: [Double?] = [] { willSet { publishIfVisible() } }
     var memoryHistory: [Double?] = [] { willSet { publishIfVisible() } }
+    var temperatureHistory: [Double?] = [] { willSet { publishIfVisible() } }
     var windowVisible = true {
         didSet { if windowVisible && !oldValue { objectWillChange.send() } }
     }
@@ -100,11 +101,12 @@ final class AppModel: ObservableObject {
 
     func startSampling() {
         guard !paused, !sleeping, samplingTask == nil else { return }
-        sampler.resetCPU()
+        sampler.reset()
         lastSampleTime = nil
         dockHistory.reset()
         cpuHistory.removeAll()
         memoryHistory.removeAll()
+        temperatureHistory.removeAll()
         NSApp.dockTile.contentView = dockView
         // Keep the user-requested Dock monitor updating while allowing system sleep.
         samplingActivity = ProcessInfo.processInfo.beginActivity(
@@ -129,7 +131,7 @@ final class AppModel: ObservableObject {
         samplingTask = nil
         if let samplingActivity { ProcessInfo.processInfo.endActivity(samplingActivity) }
         samplingActivity = nil
-        sampler.resetCPU()
+        sampler.reset()
         lastSampleTime = nil
     }
 
@@ -141,15 +143,17 @@ final class AppModel: ObservableObject {
     func sample(at now: ContinuousClock.Instant = .now) {
         if let lastSampleTime, lastSampleTime.duration(to: now) > .seconds(3) {
             // A suspended process may miss notifications. Do not label old data as live history.
-            sampler.resetCPU()
+            sampler.reset()
             dockHistory.reset()
             cpuHistory.removeAll()
             memoryHistory.removeAll()
+        temperatureHistory.removeAll()
         }
         lastSampleTime = now
         metrics = sampler.sample()
         cpuHistory = Array((cpuHistory + [metrics?.cpu?.total]).suffix(60))
         memoryHistory = Array((memoryHistory + [metrics?.memory.map { $0.fraction * 100 }]).suffix(60))
+        temperatureHistory = Array((temperatureHistory + [metrics?.temperature?.hottest]).suffix(60))
         dockHistory.append(cpu: metrics?.cpu?.total, gpu: metrics?.gpu)
         updateDock()
     }

@@ -47,6 +47,7 @@ public struct MemoryUsage: Sendable {
 public struct Metrics: Sendable {
     public let cpu: CPUUsage?
     public let gpu: Double?
+    public let temperature: ChipTemperature?
     public let memory: MemoryUsage?
     public let swapUsed: UInt64?
     public let uptime: TimeInterval
@@ -56,6 +57,7 @@ public struct Metrics: Sendable {
 public final class Sampler {
     private var previous: CPUTicks?
     private let host: host_t
+    private let temperatures = ChipTemperatureSensors()
 
     public init() { host = mach_host_self() }
     deinit { mach_port_deallocate(mach_task_self_, host) }
@@ -72,11 +74,14 @@ public final class Sampler {
         case .critical: thermal = "Critical"
         @unknown default: thermal = "Unknown"
         }
-        return Metrics(cpu: usage, gpu: GPUUsage.read(), memory: memoryUsage(), swapUsed: swap(),
+        return Metrics(cpu: usage, gpu: GPUUsage.read(), temperature: temperatures?.read(), memory: memoryUsage(), swapUsed: swap(),
                        uptime: ProcessInfo.processInfo.systemUptime, thermal: thermal)
     }
 
-    public func resetCPU() { previous = nil }
+    public func reset() {
+        previous = nil
+        temperatures?.reset()
+    }
 
     private func cpuTicks() -> CPUTicks? {
         var info = host_cpu_load_info()
